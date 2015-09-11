@@ -43,7 +43,7 @@ update action model =
 type alias Arg = Float
 type alias Precedence = Int
 type alias Operator = String
-type Token = Op Operator | Num Arg
+type Token = Op Operator | Num Arg | LPar | RPar
 
 prec : Operator -> Precedence
 prec op = case op of
@@ -70,22 +70,36 @@ binary op e1 e2 =
 parse : String -> (List String, List String)
 parse input =
   let tokens = input |> String.toList |> tokenize
+      step : Token -> (List String, List Arg) -> (List String, List Arg)
       step tok (opstack, output) =
         case tok of
           Num num -> (opstack, num :: output)
+          LPar    -> ("(" :: opstack, output)
+          RPar    -> popToLpar opstack output
           Op op   ->
             case opstack of
               [] -> (op :: opstack, output)
               op2::rest -> 
                 if | prec op <= prec op2 -> step tok (rest, apply op2 output)
                    | otherwise -> (op :: opstack, output)
-      apply op output =
-        case output of
-          e2 :: e1 :: rest -> binary op e1 e2 :: rest
-          otherwise        -> []
 
       (opstack, output) = foldl step ([], []) tokens
   in (opstack, map toString output)
+
+apply : Operator -> List Arg -> List Arg
+apply op output =
+  case output of
+    e2 :: e1 :: rest -> binary op e1 e2 :: rest
+    otherwise        -> []
+
+popToLpar : List Operator -> List Arg -> (List Operator, List Arg)
+popToLpar opstack output =
+  case opstack of
+    []       -> ([], output)
+    op::rest ->
+      if op == "("
+         then (rest, output)
+         else popToLpar rest (apply op output)
 
 tokenize : List Char -> List Token
 tokenize xs =
@@ -93,6 +107,8 @@ tokenize xs =
     []       -> []
     ch::rest ->
       if | ch == ' '       -> tokenize rest
+         | ch == '('       -> LPar :: tokenize rest
+         | ch == ')'       -> RPar :: tokenize rest
          | Char.isDigit ch -> let (n, tail) = readWhile Char.isDigit (ch :: rest)
                               in Num (n |> String.fromList |> toArg) :: tokenize tail
          | otherwise       -> Op (String.fromChar ch) :: tokenize rest
@@ -118,10 +134,11 @@ view address model =
         , value model.input
         , on "input" targetValue (Signal.message address << Input)
         , inputStyle
+        , autofocus True
         ]
         []
-    , output "Operator Stack" <| String.join ", " <| model.opstack
-    , output "Output Stack" <| String.join ", " <| model.output
+    , output "Operator Stack" <| String.join ", " <| List.reverse <| model.opstack
+    , output "Output Stack" <| String.join ", " <| List.reverse <| model.output
     ]
 
 output : String -> String -> Html
@@ -150,6 +167,7 @@ inputStyle =
     [ ("display", "block")
     , ("font-size", "16px")
     , ("margin", "40px auto")
+    , ("padding", "5px")
     , ("width", "400px")
     ]
 
